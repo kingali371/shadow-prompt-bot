@@ -681,13 +681,7 @@ def health():
 
 # ============ التشغيل الرئيسي ============
 if __name__ == "__main__":
-    # عرض معلومات بدء التشغيل
-    print("=" * 50)
-    print("🔥 Shadow Prompt Bot")
-    print("=" * 50)
-    print(f"✅ TOKEN: {'موجود' if TOKEN else '❌ غير موجود'}")
-    print(f"✅ OWNER_ID: {OWNER_ID if OWNER_ID else '❌ غير موجود'}")
-    print("=" * 50)
+    # ... الكود الخاص بعرض معلومات البوت ...
     
     # تشغيل البوت في خيط منفصل
     if TOKEN:
@@ -695,8 +689,8 @@ if __name__ == "__main__":
         bot_thread.start()
     else:
         print("❌ لا يمكن تشغيل البوت - التوكن غير موجود!")
-    
-    # تشغيل Flask
+
+    # 🔥 التعديل المطلوب هنا 🔥
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"🌐 تشغيل Flask على المنفذ {port}...")
+    # تأكد من host="0.0.0.0" لربط المنفذ بكل الواجهات
     app.run(host="0.0.0.0", port=port)
