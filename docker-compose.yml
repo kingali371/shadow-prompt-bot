@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  shadow-bot:
+    build: .
+    container_name: shadow-prompt-bot
+    restart: always
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DATABASE_PATH=/app/data/shadow_bot.db
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - bot-network
+
+networks:
+  bot-network:
+    driver: bridge
