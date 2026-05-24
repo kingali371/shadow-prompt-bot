@@ -9,7 +9,9 @@ services:
     startCommand: python app.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
+        value: false
+      - key: OWNER_ID
+        value: false
       - key: PYTHON_VERSION
         value: 3.11.0
     healthCheckPath: /health
