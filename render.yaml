@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: shadow-prompt-bot
+    runtime: python
+    repo: https://github.com/kingali371/shadow-prompt-bot
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    healthCheckPath: /health
+    autoDeploy: true
