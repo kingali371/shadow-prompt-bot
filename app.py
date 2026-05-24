@@ -4,14 +4,14 @@ import threading
 import logging
 import sqlite3
 from datetime import datetime
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# ============ إعداد Flask ============
+# إعداد Flask
 app = Flask(__name__)
 
-# ============ إعداد التسجيل ============
+# إعداد التسجيل
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -19,7 +19,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============ إعدادات البوت ============
-# جلب التوكن من المتغيرات البيئية
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 OWNER_ID = os.getenv("OWNER_ID", "")
 
@@ -28,7 +27,6 @@ if not TOKEN:
     logger.error("❌ TELEGRAM_BOT_TOKEN غير موجود!")
     logger.error("💡 يرجى تعيين المتغير: export TELEGRAM_BOT_TOKEN='your_token'")
 
-# التحقق من وجود المالك
 if not OWNER_ID:
     logger.warning("⚠️ OWNER_ID غير موجود! أوامر المدير معطلة.")
     logger.warning("💡 يرجى تعيين المتغير: export OWNER_ID='your_telegram_id'")
@@ -94,7 +92,6 @@ class DatabaseManager:
     def init_db(self):
         """إنشاء الجداول إذا لم تكن موجودة"""
         with self.get_connection() as conn:
-            # جدول المستخدمين
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id TEXT PRIMARY KEY,
@@ -106,7 +103,6 @@ class DatabaseManager:
                     last_active TIMESTAMP
                 )
             ''')
-            # جدول البرومبتات
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS prompts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +112,6 @@ class DatabaseManager:
                     created_at TIMESTAMP
                 )
             ''')
-            # جدول سجل البث
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS broadcast_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,12 +121,6 @@ class DatabaseManager:
                     created_at TIMESTAMP
                 )
             ''')
-            
-            # إضافة عمود is_admin إذا لم يكن موجوداً
-            try:
-                conn.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0')
-            except sqlite3.OperationalError:
-                pass
             
             # تعيين المالك كمدير
             if OWNER_ID:
@@ -226,21 +215,11 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.execute('SELECT user_id, username, first_name, language, is_admin FROM users ORDER BY created_at DESC')
             return cursor.fetchall()
-    
-    def log_broadcast(self, message, sent_count, failed_count):
-        """تسجيل البث في قاعدة البيانات"""
-        with self.get_connection() as conn:
-            conn.execute(
-                'INSERT INTO broadcast_log (message, sent_count, failed_count, created_at) VALUES (?, ?, ?, ?)',
-                (message, sent_count, failed_count, datetime.now())
-            )
 
-# إنشاء مدير قاعدة البيانات
 db_manager = DatabaseManager()
 
 # ============ دوال البوت ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بدء البوت"""
     user_id = str(update.effective_user.id)
     username = update.effective_user.username or ""
     first_name = update.effective_user.first_name or ""
@@ -249,7 +228,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user.get('language', 'ar') if user else 'ar'
     is_admin = user.get('is_admin', 0) if user else 0
     
-    # الأزرار الرئيسية
     keyboard = [
         [InlineKeyboardButton("🆕 برومبت جديد" if lang == 'ar' else "🆕 New Prompt", callback_data='new')],
         [InlineKeyboardButton("🔥 برومبت هاك" if lang == 'ar' else "🔥 Hack Prompt", callback_data='hack')],
@@ -261,7 +239,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🌐 تغيير اللغة" if lang == 'ar' else "🌐 Change Language", callback_data='lang')]
     ]
     
-    # إضافة زر لوحة التحكم للمالك
     if is_admin:
         keyboard.append([InlineKeyboardButton("👑 لوحة التحكم" if lang == 'ar' else "👑 Admin Panel", callback_data='admin_panel')])
     
@@ -269,14 +246,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin:
         welcome_text += "\n\n👑 **أنت المالك** - لديك صلاحيات إضافية"
     
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأزرار"""
     query = update.callback_query
     await query.answer()
     
@@ -287,29 +259,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     callback_data = query.data
     
-    # ============ تغيير اللغة ============
     if callback_data.startswith('set_lang_'):
         new_lang = callback_data.replace('set_lang_', '')
         if new_lang in ['ar', 'en', 'fr']:
             db_manager.update_language(user_id, new_lang)
-            texts = {
-                'ar': "✅ تم تغيير اللغة إلى العربية",
-                'en': "✅ Language changed to English",
-                'fr': "✅ Langue changée en Français"
-            }
+            texts = {'ar': "✅ تم تغيير اللغة", 'en': "✅ Language changed", 'fr': "✅ Langue changée"}
             await query.edit_message_text(texts.get(new_lang))
         return
     
     elif callback_data == 'lang':
-        keyboard = [
-            [InlineKeyboardButton("🇸🇦 العربية", callback_data='set_lang_ar')],
-            [InlineKeyboardButton("🇬🇧 English", callback_data='set_lang_en')],
-            [InlineKeyboardButton("🇫🇷 Français", callback_data='set_lang_fr')]
-        ]
+        keyboard = [[InlineKeyboardButton(lang, callback_data=f'set_lang_{code}') for code, lang in [('ar', '🇸🇦 العربية'), ('en', '🇬🇧 English'), ('fr', '🇫🇷 Français')]]]
         await query.edit_message_text("🌐 اختر لغتك:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # ============ السجل ============
     elif callback_data == 'history':
         prompts = db_manager.get_user_prompts(user_id)
         if prompts:
@@ -321,71 +283,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ لا توجد برومبتات سابقة")
         return
     
-    # ============ الإحصائيات ============
     elif callback_data == 'stats':
         total_users = db_manager.get_total_users()
         total_prompts = db_manager.get_total_prompts()
         user_prompts = db_manager.get_user_prompts_count(user_id)
-        
-        text = f"""
-📊 **إحصائيات البوت**
-
-👥 إجمالي المستخدمين: `{total_users}`
-📝 إجمالي البرومبتات: `{total_prompts}`
-🎯 برومبتاتك: `{user_prompts}`
-
-✨ استمر في استخدام البوت!
-"""
+        text = f"📊 **الإحصائيات**\n\n👥 المستخدمين: `{total_users}`\n📝 البرومبتات: `{total_prompts}`\n🎯 برومبتاتك: `{user_prompts}`"
         await query.edit_message_text(text, parse_mode='Markdown')
         return
     
-    # ============ لوحة التحكم ============
-    elif callback_data == 'admin_panel':
-        if not is_admin:
-            await query.edit_message_text("⛔ هذا الأمر للمالك فقط!")
-            return
-        
-        total_users = db_manager.get_total_users()
-        total_prompts = db_manager.get_total_prompts()
-        
-        text = f"""
-👑 **لوحة تحكم المالك**
-
-📊 **إحصائيات:**
-• المستخدمين: `{total_users}`
-• البرومبتات: `{total_prompts}`
-
-🔧 **الأوامر:**
-• /broadcast رسالة - بث للجميع
-• /users - قائمة المستخدمين
-• /stats - إحصائيات
-• /export_all - تصدير البيانات
-"""
-        keyboard = [
-            [InlineKeyboardButton("📢 إرسال إعلان", callback_data='admin_broadcast')],
-            [InlineKeyboardButton("📥 تصدير البيانات", callback_data='admin_export')],
-            [InlineKeyboardButton("🔙 رجوع", callback_data='back_to_menu')]
-        ]
+    elif callback_data == 'admin_panel' and is_admin:
+        text = f"👑 **لوحة التحكم**\n\n📊 المستخدمين: `{db_manager.get_total_users()}`\n📝 البرومبتات: `{db_manager.get_total_prompts()}`\n\n🔧 /broadcast رسالة\n📋 /users\n📥 /export_all"
+        keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='back_to_menu')]]
         await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    elif callback_data == 'admin_broadcast':
-        if not is_admin:
-            await query.edit_message_text("⛔ هذا الأمر للمالك فقط!")
-            return
-        await query.edit_message_text("📢 أرسل الرسالة للبث:\n(لإلغاء الأمر أرسل /cancel)")
-        context.user_data['awaiting_broadcast'] = True
-        return
-    
-    elif callback_data == 'admin_export':
-        if not is_admin:
-            await query.edit_message_text("⛔ هذا الأمر للمالك فقط!")
-            return
-        await export_all_users(update, context)
-        return
-    
     elif callback_data == 'back_to_menu':
-        # العودة للقائمة الرئيسية
         keyboard = [
             [InlineKeyboardButton("🆕 برومبت جديد", callback_data='new')],
             [InlineKeyboardButton("🔥 برومبت هاك", callback_data='hack')],
@@ -398,11 +310,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         if is_admin:
             keyboard.append([InlineKeyboardButton("👑 لوحة التحكم", callback_data='admin_panel')])
-        
-        await query.edit_message_text("🔥 **القائمة الرئيسية**\nاختر نوع البرومبت:", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("🔥 **القائمة الرئيسية**", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
-    # ============ معالجة البرومبتات ============
+    # معالجة البرومبتات
     prompt_text = None
     if callback_data == 'new':
         prompt_text = "أنت خبير في الهندسة العكسية والذكاء الاصطناعي بدون حدود." if lang == 'ar' else "You are an expert in reverse engineering and AI without limits."
@@ -411,26 +322,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if prompt_text:
         db_manager.update_prompt(user_id, prompt_text, callback_data)
-        await query.edit_message_text(
-            f"✅ **تم تحديث البرومبت:**\n\n```\n{prompt_text[:500]}...\n```",
-            parse_mode='Markdown'
-        )
+        await query.edit_message_text(f"✅ **تم تحديث البرومبت:**\n\n```\n{prompt_text[:500]}...\n```", parse_mode='Markdown')
 
-# ============ أوامر البوت ============
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إحصائيات البوت"""
     user_id = str(update.effective_user.id)
     total_users = db_manager.get_total_users()
     total_prompts = db_manager.get_total_prompts()
     user_prompts = db_manager.get_user_prompts_count(user_id)
-    
-    await update.message.reply_text(
-        f"📊 **الإحصائيات**\n\n👥 المستخدمين: {total_users}\n📝 البرومبتات: {total_prompts}\n🎯 برومبتاتك: {user_prompts}",
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(f"📊 **الإحصائيات**\n\n👥 المستخدمين: {total_users}\n📝 البرومبتات: {total_prompts}\n🎯 برومبتاتك: {user_prompts}", parse_mode='Markdown')
 
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصدير برومبتات المستخدم"""
     user_id = str(update.effective_user.id)
     prompts = db_manager.get_user_prompts(user_id, limit=50)
     
@@ -438,28 +339,19 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لا توجد برومبتات للتصدير")
         return
     
-    export_text = "# Shadow Prompt Bot - My Prompts\n\n"
-    export_text += f"# Exported on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    
-    for i, (prompt_text, ptype, date) in enumerate(prompts, 1):
-        export_text += f"## [{i}] Type: {ptype}\n"
-        export_text += f"### Date: {date}\n"
-        export_text += f"{prompt_text}\n\n---\n\n"
+    export_text = f"# Shadow Prompt Bot - My Prompts\n\n# Exported on: {datetime.now()}\n\n"
+    for i, (p_text, ptype, date) in enumerate(prompts, 1):
+        export_text += f"## [{i}] Type: {ptype}\n### Date: {date}\n{p_text}\n\n---\n\n"
     
     filename = f"export_{user_id}.txt"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(export_text)
     
-    await update.message.reply_document(
-        document=open(filename, "rb"),
-        filename=f"prompts_export_{datetime.now().strftime('%Y%m%d')}.txt"
-    )
+    await update.message.reply_document(document=open(filename, "rb"), filename=f"prompts_export_{datetime.now().strftime('%Y%m%d')}.txt")
     os.remove(filename)
 
 async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض المستخدمين (للمالك فقط)"""
     user_id = str(update.effective_user.id)
-    
     if not is_owner(user_id):
         await update.message.reply_text("⛔ هذا الأمر للمالك فقط!")
         return
@@ -470,22 +362,44 @@ async def users_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         badge = "👑 " if is_admin else ""
         display_name = name or username or uid[:8]
         text += f"{i}. {badge}{display_name} - `{uid}`\n"
-    
     if len(users) > 20:
         text += f"\n...و {len(users) - 20} مستخدمين آخرين"
-    
     await update.message.reply_text(text, parse_mode='Markdown')
 
-async def export_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصدير جميع المستخدمين (للمالك فقط)"""
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    if not is_owner(user_id):
+        await update.message.reply_text("⛔ هذا الأمر للمالك فقط!")
+        return
     
+    message = " ".join(context.args)
+    if not message:
+        await update.message.reply_text("⚠️ /broadcast نص الرسالة")
+        return
+    
+    users = db_manager.get_all_users()
+    sent = 0
+    failed = 0
+    
+    status_msg = await update.message.reply_text("📤 جاري الإرسال...")
+    
+    for user in users:
+        try:
+            await context.bot.send_message(chat_id=user[0], text=f"📢 **إعلان:**\n\n{message}", parse_mode='Markdown')
+            sent += 1
+        except:
+            failed += 1
+        await asyncio.sleep(0.05)
+    
+    await status_msg.edit_text(f"✅ تم الإرسال!\n📨 تم: {sent}\n❌ فشل: {failed}")
+
+async def export_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     if not is_owner(user_id):
         await update.message.reply_text("⛔ هذا الأمر للمالك فقط!")
         return
     
     users = db_manager.get_all_users()
-    
     if not users:
         await update.message.reply_text("❌ لا يوجد مستخدمين")
         return
@@ -496,152 +410,29 @@ async def export_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(filename, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['User ID', 'Username', 'Name', 'Language', 'Is Admin'])
-        for uid, username, name, lang, is_admin in users:
-            writer.writerow([uid, username, name, lang, is_admin])
+        writer.writerows([[uid, username, name, lang, is_admin] for uid, username, name, lang, is_admin in users])
     
-    await update.message.reply_document(
-        document=open(filename, "rb"),
-        filename=filename,
-        caption="📊 تصدير جميع المستخدمين"
-    )
+    await update.message.reply_document(document=open(filename, "rb"), filename=filename, caption="📊 تصدير جميع المستخدمين")
     os.remove(filename)
 
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إرسال رسالة للجميع (للمالك فقط)"""
-    user_id = str(update.effective_user.id)
-    
-    if not is_owner(user_id):
-        await update.message.reply_text("⛔ هذا الأمر للمالك فقط!")
-        return
-    
-    message = " ".join(context.args)
-    if not message:
-        await update.message.reply_text("⚠️ /broadcast نص الرسالة")
-        return
-    
-    # تأكيد
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ نعم", callback_data='confirm_broadcast'),
-         InlineKeyboardButton("❌ لا", callback_data='cancel_broadcast')]
-    ])
-    
-    context.user_data['broadcast_message'] = message
-    await update.message.reply_text(
-        f"📢 إرسال:\n\n{message}\n\nهل أنت متأكد؟",
-        reply_markup=keyboard
-    )
-
-async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تأكيد البث"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = str(update.effective_user.id)
-    if not is_owner(user_id):
-        await query.edit_message_text("⛔ للمالك فقط!")
-        return
-    
-    message = context.user_data.get('broadcast_message')
-    if not message:
-        await query.edit_message_text("❌ لا توجد رسالة")
-        return
-    
-    await query.edit_message_text("📤 جاري الإرسال...")
-    
-    users = db_manager.get_all_users()
-    sent = 0
-    failed = 0
-    
-    for user in users:
-        try:
-            await context.bot.send_message(
-                chat_id=user[0],
-                text=f"📢 **إعلان:**\n\n{message}",
-                parse_mode='Markdown'
-            )
-            sent += 1
-        except:
-            failed += 1
-        await asyncio.sleep(0.05)
-    
-    db_manager.log_broadcast(message, sent, failed)
-    
-    await query.edit_message_text(
-        f"✅ تم الإرسال!\n📨 تم: {sent}\n❌ فشل: {failed}"
-    )
-    context.user_data.pop('broadcast_message', None)
-
-async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إلغاء البث"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("❌ تم الإلغاء")
-    context.user_data.pop('broadcast_message', None)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة الرسائل"""
-    user_id = str(update.effective_user.id)
-    
-    if context.user_data.get('awaiting_broadcast') and is_owner(user_id):
-        message = update.message.text
-        if message.lower() == '/cancel':
-            context.user_data.pop('awaiting_broadcast')
-            await update.message.reply_text("❌ تم الإلغاء")
-            return
-        
-        users = db_manager.get_all_users()
-        sent = 0
-        failed = 0
-        
-        status = await update.message.reply_text("📤 جاري الإرسال...")
-        
-        for user in users:
-            try:
-                await context.bot.send_message(
-                    chat_id=user[0],
-                    text=f"📢 **إعلان:**\n\n{message}",
-                    parse_mode='Markdown'
-                )
-                sent += 1
-            except:
-                failed += 1
-            await asyncio.sleep(0.05)
-        
-        await status.edit_text(f"✅ تم الإرسال!\n📨 تم: {sent}\n❌ فشل: {failed}")
-        context.user_data.pop('awaiting_broadcast')
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مساعدة"""
     user_id = str(update.effective_user.id)
     is_admin = is_owner(user_id)
     
-    text = """
-📚 **الأوامر:**
-
-/start - بدء البوت
-/help - هذه المساعدة
-/stats - الإحصائيات
-/export - تصدير برومبتاتك
-"""
+    text = "📚 **الأوامر:**\n\n/start - بدء البوت\n/help - هذه المساعدة\n/stats - الإحصائيات\n/export - تصدير برومبتاتك"
     if is_admin:
-        text += """
-/broadcast - بث رسالة
-/users - قائمة المستخدمين
-/export_all - تصدير الكل
-"""
-    
+        text += "\n/broadcast - بث رسالة\n/users - قائمة المستخدمين\n/export_all - تصدير الكل"
     await update.message.reply_text(text)
 
-# ============ تشغيل البوت ============
-def run_telegram_bot():
-    """تشغيل البوت"""
+# ============ تشغيل البوت (مصمم لـ Render) ============
+async def run_telegram_bot_async():
+    """تشغيل البوت بشكل غير متزامن"""
     if not TOKEN:
         logger.error("❌ لا يمكن تشغيل البوت بدون توكن")
         return
     
     application = Application.builder().token(TOKEN).build()
     
-    # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
@@ -650,28 +441,29 @@ def run_telegram_bot():
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("export_all", export_all_users))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern='confirm_broadcast'))
-    application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern='cancel_broadcast'))
     
     logger.info("🤖 تشغيل البوت...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+def run_telegram_bot_thread():
+    """تشغيل البوت في thread منفصل مع event loop جديد"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_telegram_bot_async())
 
 # ============ مسارات Flask ============
 @app.route('/')
 def home():
-    """الصفحة الرئيسية"""
     return jsonify({
         "status": "active",
         "bot": "Shadow Prompt Bot",
         "version": "1.0.0",
         "token_configured": bool(TOKEN),
-        "owner_configured": bool(OWNER_ID),
-        "owner_id": OWNER_ID if OWNER_ID else "Not set"
+        "owner_configured": bool(OWNER_ID)
     })
 
 @app.route('/health')
 def health():
-    """فحص الصحة"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -681,16 +473,28 @@ def health():
 
 # ============ التشغيل الرئيسي ============
 if __name__ == "__main__":
-    # ... الكود الخاص بعرض معلومات البوت ...
+    print("=" * 50)
+    print("🔥 Shadow Prompt Bot")
+    print("=" * 50)
+    print(f"✅ TOKEN: {'موجود' if TOKEN else '❌ غير موجود'}")
+    print(f"✅ OWNER_ID: {OWNER_ID if OWNER_ID else '❌ غير موجود'}")
+    print("=" * 50)
     
-    # تشغيل البوت في خيط منفصل
+    # تشغيل البوت في thread منفصل (مع إصلاح مشكلة event loop)
     if TOKEN:
-        bot_thread = threading.Thread(target=run_telegram_bot)
+        bot_thread = threading.Thread(target=run_telegram_bot_thread)
+        bot_thread.daemon = True
         bot_thread.start()
+        print("✅ تم تشغيل البوت بنجاح!")
     else:
         print("❌ لا يمكن تشغيل البوت - التوكن غير موجود!")
-
-    # 🔥 التعديل المطلوب هنا 🔥
-    port = int(os.environ.get("PORT", 5000))
-    # تأكد من host="0.0.0.0" لربط المنفذ بكل الواجهات
+    
+    # تشغيل Flask - مع التعامل مع PORT الفارغ
+    try:
+        port_str = os.environ.get("PORT", "").strip()
+        port = int(port_str) if port_str else 5000
+    except (ValueError, TypeError):
+        port = 5000
+    
+    print(f"🌐 تشغيل Flask على المنفذ {port}...")
     app.run(host="0.0.0.0", port=port)
